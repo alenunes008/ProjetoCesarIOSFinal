@@ -1,0 +1,52 @@
+name: Deploy Firebase Remote Config
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Validar JSON do Remote Config
+        run: jq empty config/remote_config.json
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Instalar Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Login no Firebase
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > service-account.json
+          firebase auth:login --token "$(jq -r '.private_key' service-account.json)"
+
+      - name: Fazer Deploy para Firebase Remote Config
+        run: |
+          firebase remoteconfig:update --local-file=config/remote_config.json --force
+
+      - name: Confirmar Atualização
+        run: firebase remoteconfig:get | tee config/remote_config_current.json
+
+      - name: Commit da nova versão
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add config/remote_config_current.json
+          git commit -m "Atualização automática do Firebase Remote Config"
+          git push
